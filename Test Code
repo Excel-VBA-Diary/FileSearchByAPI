@@ -1,0 +1,53 @@
+Option Explicit
+
+'-------------------------------------------------------------------------------
+' テストコード
+'-------------------------------------------------------------------------------
+
+Public Sub SearchFilesWithSameNameAsThisWorkbook()
+    
+    '-----------------------------------------------------------------
+    'Step-1 シートを初期化する
+    '-----------------------------------------------------------------
+    Dim myWs As Worksheet
+    Set myWs = ThisWorkbook.Worksheets("Sheet1")
+    myWs.UsedRange.Clear
+    
+    '-----------------------------------------------------------------
+    'Step-2 ファイルを検索する
+    '-----------------------------------------------------------------
+    Dim fsa As New FileSearchByAPI
+    Dim cFileInfo As Collection
+    Set cFileInfo = fsa.SearchFiles(ThisWorkbook.Path, ThisWorkbook.Name, , True)
+    If cFileInfo.Count = 0 Then Exit Sub
+    
+    '-----------------------------------------------------------------
+    'Step-3 検索結果を表示する
+    '-----------------------------------------------------------------
+
+    Application.ScreenUpdating = False
+
+    Dim myRng As Range
+    Set myRng = myWs.Range("A1")
+    
+    Dim fi As FileInfomation
+    For Each fi In cFileInfo
+        With fi
+            myRng.Item(1, 1).Value = .Path
+            myRng.Item(1, 2).Value = .DateLastModified
+            myRng.Item(1, 3).Value = .Size
+        End With
+        Set myRng = myRng.Offset(1)
+    Next
+
+    '書式を設定する
+    With myWs.UsedRange
+        .Font.Name = "Meiryo UI"
+        .Font.Size = 10
+    End With
+
+    Application.ScreenUpdating = True
+
+    Application.Goto Reference:=myWs.Range("A1"), Scroll:=True
+
+End Sub
