@@ -1,0 +1,260 @@
+Option Explicit
+
+' FileSearchByAPI Class
+
+' Win32API ディレクトリを走査しファイルを検索する
+' 参考 FindFirstFile FindFirstFileEx FindNextFile FindClose
+
+' 参考 WIN32_FIND_DATA構造体
+' https://msdn.microsoft.com/ja-jp/windows/aa365740(v=vs.80)
+' 参考 FILETIME構造体
+' https://support.microsoft.com/ja-jp/help/188768/info-working-with-the-filetime-structure
+
+' Win32API関数  先頭ファイル検索
+#If VBA7 Then
+'64bit版
+Private Declare PtrSafe Function FindFirstFile Lib "kernel32" Alias "FindFirstFileW" _
+            (ByVal lpFileName As LongPtr, _
+            lpFindFileData As WIN32_FIND_DATA) As LongPtr
+#Else
+'32bit版
+Private Declare Function FindFirstFile Lib "kernel32" Alias "FindFirstFileW" _
+            (ByVal lpFileName As Long, _
+            lpFindFileData As WIN32_FIND_DATA) As Long
+#End If
+
+' Win32API関数  先頭ファイル検索
+#If VBA7 Then
+'64bit版
+Private Declare PtrSafe Function FindFirstFileEx Lib "kernel32" Alias "FindFirstFileExW" _
+            (ByVal lpFileName As LongPtr, _
+            ByVal fInfoLevelId As FINDEX_INFO_LEVELS, _
+            lpFindFileData As WIN32_FIND_DATA, _
+            ByVal fSearchOp As FINDEX_SEARCH_OPS, _
+            ByVal lpSearchFilter As LongPtr, _
+            ByVal dwAdditionalFlags As Long) As LongPtr
+#Else
+'32bit版
+Private Declare Function FindFirstFileEx Lib "kernel32" Alias "FindFirstFileExW" _
+            (ByVal lpFileName As Long, _
+            ByVal fInfoLevelId As FINDEX_INFO_LEVELS, _
+            lpFindFileData As WIN32_FIND_DATA, _
+            ByVal fSearchOp As FINDEX_SEARCH_OPS, _
+            ByVal lpSearchFilter As Long, _
+            ByVal dwAdditionalFlags As Long) As Long
+#End If
+
+' Win32API関数  次ファイル検索
+#If VBA7 Then
+'64bit版
+Private Declare PtrSafe Function FindNextFile Lib "kernel32" Alias "FindNextFileW" _
+            (ByVal hFindFile As LongPtr, lpFindFileData As WIN32_FIND_DATA) As LongPtr
+#Else
+'32bit版
+Private Declare Function FindNextFile Lib "kernel32" Alias "FindNextFileW" _
+            (ByVal hFindFile As Long, lpFindFileData As WIN32_FIND_DATA) As Long
+#End If
+            
+' Win32API関数  検索ハンドル開放
+#If VBA7 Then
+'64bit版
+Private Declare PtrSafe Function FindClose Lib "kernel32" _
+    (ByVal hFindFile As LongPtr) As LongPtr
+#Else
+'32bit版
+Private Declare Function FindClose Lib "kernel32" _
+            (ByVal hFindFile As Long) As Long
+#End If
+
+' Win32API関数  ファイル時間をシステム時間に変換
+#If VBA7 Then
+'64bit版
+Private Declare PtrSafe Function FileTimeToSystemTime Lib "kernel32.dll" _
+            (lpFileTime As FILETIME, lpSystemTime As SYSTEMTIME) As LongPtr
+#Else
+'32bit版
+Private Declare Function FileTimeToSystemTime Lib "kernel32.dll" _
+            (lpFileTime As FILETIME, lpSystemTime As SYSTEMTIME) As Long
+#End If
+
+' FINDEX_INFO_LEVELS列挙体
+Private Enum FINDEX_INFO_LEVELS
+    FindExInfoStandard = 0
+    FindExInfoBasic = 1
+    FindExInfoMaxInfoLevel = 2
+End Enum
+
+' FINDEX_SEARCH_OPS列挙体
+Private Enum FINDEX_SEARCH_OPS
+    FindExSearchNameMatch = 0
+    FindExSearchLimitToDirectories = 1
+    FindExSearchLimitToDevices = 2
+    FindExSearchMaxSearchOp = 3
+End Enum
+
+' dwAdditionalFlags
+Private Const FIND_FIRST_EX_CASE_SENSITIVE = 1
+Private Const FIND_FIRST_EX_LARGE_FETCH = 2
+Private Const FIND_FIRST_EX_ON_DISK_ENTRIES_ONLY = 4
+
+Private Const INVALID_HANDLE_VALUE = -1
+Private Const USE_FindFirstFileEx = True
+
+' FILETIME構造体
+Private Type FILETIME
+    LowDateTime    As Long
+    HighDateTime   As Long
+End Type
+
+' WIN32_FIND_DATA構造体
+' http://chokuto.ifdef.jp/urawaza/struct/WIN32_FIND_DATA.html
+' ※Unicode対応のため2倍（*2）にしている
+Private Type WIN32_FIND_DATA
+    dwFileAttributes                As Long         ' ファイル属性
+    ftCreationTime                  As FILETIME     ' 作成日
+    ftLastAccessTime                As FILETIME     ' 最終アクセス日
+    ftLastWriteTime                 As FILETIME     ' 最終更新日
+    nFileSizeHigh                   As Long         ' ファイルサイズ（上位32ビット）
+    nFileSizeLow                    As Long         ' ファイルサイズ（下位32ビット）
+    dwReserved0                     As Long         ' 予約済み。リパースタグ
+    dwReserved1                     As Long         ' 予約済み。未使用
+    cFileName(260 * 2 - 1)          As Byte         ' ファイル名（※）
+    cAlternateFileName(14 * 2 - 1)  As Byte         ' 8.3形式のファイル名（※）
+End Type
+
+' 日付と時刻を定義する構造体
+Private Type SYSTEMTIME
+    wYear           As Integer
+    wMonth          As Integer
+    wDayOfWeek      As Integer
+    wDay            As Integer
+    wHour           As Integer
+    wMinute         As Integer
+    wSecond         As Integer
+    wMilliseconds   As Integer
+ End Type
+
+'-------------------------------------------------------------------------------
+' 指定フォルダ配下のファイルを検査する
+'-------------------------------------------------------------------------------
+' パラメータ        : 型         : 意味                          : 省略時の解釈
+' ParentFolder      : String     : 検索フォルダパス              : 省略不可
+' FilePattern       : String     : ファイル名の検索パターン      : "*"
+' FolderPattern     : String     : フォルダー名の検索パターン    : "*"
+' RecurseSubFolders : Boolean    : サブホルダーを含めるかどうか  : False
+'-------------------------------------------------------------------------------
+' 戻り値            : Collection : 検索結果
+'-------------------------------------------------------------------------------
+  
+Public Function SearchFiles(ByVal ParentFolder As String, _
+                Optional ByVal FilePattern As String = "*", _
+                Optional ByVal FolderPattern As String = "*", _
+                Optional ByVal RecurseSubFolders As Boolean = False) As Collection
+    
+    ' 検索結果を格納するコレクション、初回突入時に初期化する
+    Static cFileInfo As Collection
+    If cFileInfo Is Nothing Then Set cFileInfo = New Collection
+
+    If Right(ParentFolder, 1) <> "\" Then ParentFolder = ParentFolder & "\"
+    
+    ' FindFirstFileW関数では、検索パスの先頭に "\?\"や"\?\UNC" を追加しておくと
+    ' 260 (MAX_PATH) 文字よりも長い文字をパスに指定することができる
+    Dim UnicodeFolderPath As String
+    If ParentFolder Like "\\*" Then
+        UnicodeFolderPath = "\\?\UNC" & Mid$(ParentFolder, 2)
+    Else
+        UnicodeFolderPath = "\\?\" & ParentFolder
+    End If
+    
+#If VBA7 Then
+    Dim fileHandle As LongPtr
+#Else
+    Dim fileHandle As Long
+#End If
+    
+    ' 検索ハンドルが見つからない場合は「INVALID_HANDLE_VALUE」を返す
+    Dim findData As WIN32_FIND_DATA
+    If USE_FindFirstFileEx Then
+        ' FindExInfoBasic/FIND_FIRST_EX_LARGE_FETCH指定により高速化
+        fileHandle = FindFirstFileEx(StrPtr(UnicodeFolderPath & "*"), FindExInfoBasic, _
+                findData, FindExSearchNameMatch, 0&, FIND_FIRST_EX_LARGE_FETCH)
+    End If
+    
+    If Not USE_FindFirstFileEx Or fileHandle = INVALID_HANDLE_VALUE Then
+        fileHandle = FindFirstFile(StrPtr(UnicodeFolderPath & "*"), findData)
+    End If
+    
+    If fileHandle = INVALID_HANDLE_VALUE Then
+        Exit Function
+    End If
+
+    Dim fileNameLength As Long
+    Dim sFileName As String
+    Dim folderPathList As New Collection
+    
+    Do
+        ' FindFirstFileではファイル名の後ろにMax_Pathで指定した文字数までNullが詰まっている。
+        fileNameLength = InStr(findData.cFileName, vbNullChar) - 1
+        If fileNameLength > 0 Then
+            
+            sFileName = Trim$(Left(findData.cFileName, fileNameLength))
+            If findData.dwFileAttributes And vbDirectory Then
+                If sFileName <> "." And sFileName <> ".." Then
+                    If sFileName Like FolderPattern Then
+                        ' フォルダーコレクションに追加
+                        folderPathList.Add sFileName
+                    End If
+                End If
+            Else
+                If sFileName Like FilePattern Then
+                    With New FileInfomation
+                        .Name = sFileName
+                        .DateCreated = FileTime_To_Date(findData.ftCreationTime)
+                        .DateLastAccessed = FileTime_To_Date(findData.ftLastAccessTime)
+                        .DateLastModified = FileTime_To_Date(findData.ftLastWriteTime)
+                        .Size = findData.nFileSizeLow
+                        .Attributes = findData.dwFileAttributes
+                        .ParentFolder = ParentFolder
+                        .Path = ParentFolder & "\" & sFileName
+                        cFileInfo.Add .Self
+                    End With
+                End If
+            End If
+        
+        End If
+    Loop Until FindNextFile(fileHandle, findData) = 0
+    
+    ' 検索ハンドルを閉じる
+    FindClose fileHandle
+    
+    Dim folderPath As Variant
+    If RecurseSubFolders = True Then
+        For Each folderPath In folderPathList
+            ' サブフォルダ再帰探索
+            Call SearchFiles(ParentFolder & folderPath, FilePattern, FolderPattern, RecurseSubFolders)
+        Next
+    End If
+    
+    Set SearchFiles = cFileInfo
+    
+End Function
+
+'-------------------------------------------------------------------------------
+' ファイル時間(FILETIME構造体)を日付(DATE型)に変換する
+' パラメータ        : 型         : 意味                          : 省略時の解釈
+' inFileTime        : FILETIME   : ファイル時間                  : 省略不可
+'-------------------------------------------------------------------------------
+' 戻り値            : Date       : 日付(yyyy/m/d h:m:s)
+'-------------------------------------------------------------------------------
+
+Private Function FileTime_To_Date(inFileTime As FILETIME) As Date
+    Dim utcSystemTime As SYSTEMTIME, utcDateTime As Date
+    ' ファイル時間をシステム時間に変換する
+    Call FileTimeToSystemTime(inFileTime, utcSystemTime)
+    ' システム時間を日付に変換する
+    With utcSystemTime
+        utcDateTime = .wYear & "/" & .wMonth & "/" & .wDay & " " & .wHour & ":" & .wMinute & ":" & .wSecond
+    End With
+    ' JST補正（システム時間に9時間を加算して戻り値とする
+    FileTime_To_Date = DateAdd("h", 9, utcDateTime)
+End Function
