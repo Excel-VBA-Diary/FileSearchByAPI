@@ -1,0 +1,17 @@
+Option Explicit
+
+' FileInfomation Class
+
+' メンバー変数
+Public Name As String
+Public DateCreated As Date
+Public DateLastAccessed As Date
+Public DateLastModified As Date
+Public Size As Long
+Public Attributes As Long
+Public Path As String
+Public ParentFolder As String
+
+Property Get Self() As FileInfomation
+    Set Self = Me
+End Property
